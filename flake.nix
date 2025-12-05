@@ -15,14 +15,14 @@
         libxkbcommon
 
         # GPU backend
-        vulkan-loader
-        # libGL
+        # vulkan-loader
+        libGL
 
         # Window system
         wayland
-        # xorg.libX11
-        # xorg.libXcursor
-        # xorg.libXi
+        xorg.libX11
+        xorg.libXcursor
+        xorg.libXi
       ];
       buildInputs = with pkgs; [
         lldb

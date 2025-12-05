@@ -29,6 +29,7 @@ fn main() -> Result<()> {
 
     iced::application("floating", UIState::update, UIState::view)
         .theme(|_| Theme::Dracula)
+        .window_size((460.0, 500.0))
         .run_with(move || {
             (
                 UIState::new(router.clone()),
@@ -158,10 +159,18 @@ impl UIState {
 
         let controls = row![
             horizontal_space(),
+            button("Create Offer")
+                .on_press(Message::OpenAddModal)
+                .style(button::primary),
+            button("Accept Offer")
+                .on_press(Message::OpenAddModal)
+                .style(button::primary),
             button("Add Peer")
                 .on_press(Message::OpenAddModal)
-                .style(button::primary)
-        ];
+                .style(button::primary),
+            horizontal_space(),
+        ]
+        .spacing(10);
 
         let table_header = row![
             text("ID")
@@ -196,23 +205,39 @@ impl UIState {
             });
 
             ContextMenu::new(row_content, move || {
-                column![
-                    button(text("Edit").size(14))
-                        .on_press(Message::OpenEditModal(peer.clone()))
-                        .style(button::text)
-                        .width(Length::Fill),
-                    button(text("Copy IP").size(14))
-                        .on_press(Message::CopyIp(peer.ip.clone()))
-                        .style(button::text)
-                        .width(Length::Fill),
-                    button(text("Delete").size(14))
-                        .on_press(Message::DeletePeer(peer.id.clone()))
-                        .style(button::danger)
-                        .width(Length::Fill),
-                ]
-                .padding(5)
-                .spacing(2)
-                .width(150)
+                container(
+                    column![
+                        button(text("Edit").size(14))
+                            .on_press(Message::OpenEditModal(peer.clone()))
+                            .style(button::text)
+                            .width(Length::Fill),
+                        button(text("Copy IP").size(14))
+                            .on_press(Message::CopyIp(peer.ip.clone()))
+                            .style(button::text)
+                            .width(Length::Fill),
+                        button(text("Delete").size(14))
+                            .on_press(Message::DeletePeer(peer.id.clone()))
+                            .style(button::danger)
+                            .width(Length::Fill),
+                    ]
+                    .padding(5)
+                    .spacing(2)
+                    .width(150),
+                )
+                .style(|theme: &Theme| container::Style {
+                    background: Some(Background::Color(theme.palette().background)),
+                    border: Border {
+                        radius: 10.0.into(),
+                        width: 1.0,
+                        color: theme.palette().primary,
+                    },
+                    shadow: Shadow {
+                        color: Color::BLACK,
+                        offset: Vector::new(0.0, 4.0),
+                        blur_radius: 10.0,
+                    },
+                    ..Default::default()
+                })
                 .into()
             })
             .into()
