@@ -13,6 +13,8 @@ pub enum RouterCommand{
     CreateOffer { peer_id: String },
     AcceptOffer { peer_id: String, sdp: String },
     CreateAnswer { peer_id: String, sdp: String },
+    ConnectToPeer { peer_id: String }, 
+    SendChat { peer_id: String, message: String },
 }
 pub struct Router; 
 
@@ -25,16 +27,41 @@ impl Router {
         let (tx, mut rx) = mpsc::channel(32);
         let manager = PeerManager::new(tx.clone()).await?;
 
+        use crate::signaling::client::SignalClient;
+        use crate::signaling::protocol::SignalMessage;
+
+        
         let args: Vec<_> = std::env::args().collect();
 
-        let dev_name = args.get(1).map(|s| s.as_str()).unwrap_or("tun1");
-        let local_ip = args.get(2).map(|s| s.as_str()).unwrap_or("10.10.0.2");
+
+        let dev_name = args
+        .get(1)
+        .map(|s| s.as_str())
+        .unwrap_or("tun1");
+
+        let local_ip = args
+        .get(2)
+        .map(|s| s.as_str())
+        .unwrap_or("10.10.0.2");
+
+        let my_id = args
+        .get(3)
+        .cloned()
+        .unwrap_or("peer1".into());
+        
         let mask = Ipv4Addr::new(255, 255, 255, 0);
         let dev = DeviceBuilder::new()
             .name(dev_name)
             .mtu(1500)
             .ipv4(local_ip, mask, None)
             .build_async()?;
+
+        let (signal_client, mut signal_rx) =
+            SignalClient::connect(
+            "127.0.0.1:9000",
+            my_id.clone(),
+         )
+        .await?;
 
         let recvloop = async {
             let mut buf = vec![0u8; 1500];
@@ -103,6 +130,68 @@ impl Router {
                     eprintln!("Error: {e}");
                 }
             }
+
+            RouterCommand::ConnectToPeer { peer_id } => {
+                match manager.create_offer(peer_id.clone()).await {
+                    Ok(offer) => {
+                    if let Err(e) = signal_client.send(
+                        SignalMessage::Offer {
+                            from: my_id.clone(),
+                            to: peer_id,
+                            sdp: offer,
+                        }
+                    ).await {
+                        eprintln!("Signal error: {}", e);
+                    }
+                    }
+
+                    Err(e) => {
+                        eprintln!("Offer error: {}", e);
+                    }
+                }
+            }
+
+            RouterCommand::SendChat { peer_id, message } => {
+               if let Err(e) = manager.send_chat(&peer_id, message.clone()).await {
+                eprintln!("chat send error: {e}");
+                }
+            }
+        }
+    }
+};
+
+let signaling_loop = async {
+    while let Some(msg) = signal_rx.recv().await {
+        match msg {
+            SignalMessage::Offer { from, sdp, .. } => {
+                match manager.accept_offer(from.clone(), &sdp).await {
+                    Ok(answer) => {
+                        if let Err(e) = signal_client.send(
+                            SignalMessage::Answer {
+                                from: my_id.clone(),
+                                to: from,
+                                sdp: answer,
+                            }
+                        ).await {
+                            eprintln!("Signal error: {}", e);
+                        }
+                    }
+
+                    Err(e) => {
+                        eprintln!("Accept error: {}", e);
+                    }
+                }
+            }
+
+            SignalMessage::Answer { from, sdp, .. } => {
+                if let Err(e) =
+                    manager.set_answer_as_offerer(&from, &sdp).await
+                {
+                    eprintln!("Answer error: {}", e);
+                }
+            }
+
+            _ => {}
         }
     }
 };
@@ -116,6 +205,9 @@ impl Router {
             },
             _ = command_loop => { 
                 println!("command loop exited"); 
+            }
+            _ = signaling_loop => {
+                println!("signaling_loop exited");
             }
             _ = token.cancelled() => {
                 println!("Bye!!");

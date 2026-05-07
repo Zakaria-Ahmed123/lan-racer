@@ -157,4 +157,16 @@ impl PeerManager {
         }
         Ok(())
     }
+
+    pub async fn send_chat(&self, peer_id: &str, message: String) -> Result<()> {
+        let channels = self.data_channels.read().await;
+
+        let chan = channels
+            .get(peer_id)
+        .ok_or(anyhow!("Peer not found"))?;
+
+        chan.send_text(&message).await?;
+
+        Ok(())
+    }
 }

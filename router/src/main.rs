@@ -6,6 +6,7 @@ use tokio_util::sync::CancellationToken;
 mod router;
 mod peer;
 mod event;
+mod signaling;
 
 use router::{Router, RouterCommand};
 
@@ -32,39 +33,28 @@ async fn main() -> Result<()> {
     let stdin = BufReader::new(tokio::io::stdin());
     let mut lines = stdin.lines();
 
-    println!("Commands:");
-    println!("offer <peer_id>");
-    println!("accept <peer_id> <sdp>");
-    println!("answer <peer_id> <sdp>");
-
+    println!("connect <peer_id>");
+    println!("chat <peer_id> <message>");
     while let Ok(Some(line)) = lines.next_line().await {
         let parts: Vec<_> = line.splitn(3, ' ').collect();
 
         match parts.as_slice() {
-            ["offer", peer_id] => {
-                let _ = cmd_tx
-                    .send(RouterCommand::CreateOffer {
-                        peer_id: peer_id.to_string(),
-                    })
-                    .await;
+            ["connect", peer_id] => {
+              let _ = cmd_tx
+                .send(RouterCommand::ConnectToPeer {
+                    peer_id: peer_id.to_string(),
+                 })
+                .await;
             }
 
-            ["accept", peer_id, sdp] => {
-                let _ = cmd_tx
-                    .send(RouterCommand::AcceptOffer {
-                        peer_id: peer_id.to_string(),
-                        sdp: sdp.to_string(),
-                    })
-                    .await;
-            }
-
-            ["answer", peer_id, sdp] => {
-                let _ = cmd_tx
-                    .send(RouterCommand::CreateAnswer {
-                        peer_id: peer_id.to_string(),
-                        sdp: sdp.to_string(),
-                    })
-                    .await;
+            ["chat", peer_id, msg] => {
+              println!("🔥 CHAT COMMAND HIT: {} -> {}", peer_id, msg);
+              let _ = cmd_tx
+                .send(RouterCommand::SendChat {
+                peer_id: peer_id.to_string(),
+                message: msg.to_string(),
+                })
+                .await;
             }
 
             _ => println!("Unknown command"),
