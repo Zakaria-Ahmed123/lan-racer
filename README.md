@@ -34,12 +34,16 @@ Command execution (connect, chat, etc.) - Event processing
 
 ## 3. Signaling Server
 
-Handles: - Exchange of SDP offers/answers - Peer discovery coordination
+Handles: 
+- Exchange of SDP offers/answers
+- Peer discovery coordination
 
 ## 4. (Optional) Iced UI
 
-Provides: - Peer management dashboard - Chat interface - Logs and
-connection status
+Provides:
+- Peer management dashboard 
+- Chat interface
+- Logs and connection status
 
 ------------------------------------------------------------------------
 
@@ -87,7 +91,7 @@ cargo run --bin router -- tun1 10.10.0.2
         [System]: Peer 2 connected. 
 ```
 - Then you can test :
-- ``` bash
+   ``` bash
         chat peer-1 <your_message>
         chat peer-2 <your_message> 
 ```
@@ -134,12 +138,12 @@ NetWeave uses a hybrid model:
 
 # 🧭 Roadmap
 
-- []   Add TURN support for strict NAT environments
-- [] Improve peer discovery system
-- []  Add authentication layer
-- [] Build full chat UI
-- []  Add network visualization (graph view)
-- [] Add multi-peer routing (mesh mode)
+- [ ]   Add TURN support for strict NAT environments
+- [ ] Improve peer discovery system
+- [ ]  Add authentication layer
+- [ ] Build full chat UI
+- [ ]  Add network visualization (graph view)
+- [ ] Add multi-peer routing (mesh mode)
 
 ------------------------------------------------------------------------
 
