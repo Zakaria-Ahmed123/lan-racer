@@ -1,79 +1,451 @@
-use iced::{Application, Command, Element, Theme};
-use iced::widget::{button, column, row, text, container, scrollable};
+use anyhow::Result;
+use iced::widget::{
+    button, column, container, horizontal_space, mouse_area, row, scrollable, stack, text,
+    text_input, vertical_space,
+};
+use iced::{Background, Border, Center, Color, Element, Length, Shadow, Task, Theme, Vector};
+use iced_aw::ContextMenu;
+use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
+
+pub struct Router;
+impl Router {
+    pub fn new() -> Self {
+        Self
+    }
+    pub async fn route(&self, _token: CancellationToken) {
+        std::future::pending().await
+    }
+}
+
+fn main() -> Result<()> {
+    let token = CancellationToken::new();
+    let router = Arc::new(Router::new());
+
+    iced::application("floating", UIState::update, UIState::view)
+        .theme(|_| Theme::Dracula)
+        .window_size((460.0, 500.0))
+        .run_with(move || {
+            (
+                UIState::new(router.clone()),
+                Task::perform(async move { router.route(token).await }, |_| Message::Exit),
+            )
+        })?;
+    Ok(())
+}
 
 #[derive(Debug, Clone)]
-pub enum Message {
-    StartServer,
+struct PeerInfo {
+    id: String,
+    ip: String,
+    status: String,
+    copied: bool,
+    
+}
+
+struct UIState {
+    router: Arc<Router>,
+    my_ip: String,
+    my_mask: String,
+    state: String,
+    peers: Vec<PeerInfo>,
+
+    modal:ModalState, 
+    is_editing: bool,
+    input_id: String,
+    input_ip: String,
+    editing_target_id: Option<String>,
+    start_server_ip: String,
+}
+
+#[derive(Debug, Clone)]
+enum Message {
+    Exit,
+    OpenAddModal,
+    OpenConnectModal, 
+    OpenEditModal(PeerInfo),
+    OpenStartServerModal,
+    CloseModal,
+    InputIdChanged(String),
+    InputIpChanged(String),
+    InputStartServerIpChanged(String),
+    SubmitForm,
+    DeletePeer(String),
+    BanPeer(String),
+    CopyIp(String),
+    Copied(String),
+}
+
+#[derive(Debug, Clone)]
+enum ModalState {
+    None,
+    AddPeer,
+    EditPeer,   // peer id
     ConnectPeer,
-    SendChat,
+    StartServer,
 }
 
-pub struct App {
-    logs: Vec<String>,
-}
+impl UIState {
+    fn new(router: Arc<Router>) -> Self {
+        Self {
+            router,
+            my_ip: "10.0.0.1".to_string(),
+            my_mask: "255.255.255.0".to_string(),
+            state: "Running".to_string(),
+            peers: (0..5)
+                .map(|i| PeerInfo {
+                    id: format!("peer-{}", i),
+                    ip: format!("10.0.0.{}", i + 2),
+                    status: "Idle".into(),
+                    copied: false,
+                })
+                .collect(),
 
-impl Application for App {
-    type Message = Message;
-    type Theme = Theme;
-    type Executor = iced::executor::Default;
-    type Flags = ();
-
-    fn new(_flags: ()) -> (Self, Command<Self::Message>) {
-        (
-            Self {
-                logs: vec![],
-            },
-            Command::none(),
-        )
-    }
-
-    fn title(&self) -> String {
-        "LAN Racer UI".into()
-    }
-
-    fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
-        match message {
-            Message::StartServer => self.logs.push("Start server clicked".into()),
-            Message::ConnectPeer => self.logs.push("Connect peer clicked".into()),
-            Message::SendChat => self.logs.push("Send chat clicked".into()),
+            modal: ModalState::None,
+            is_editing: false,
+            input_id: String::new(),
+            input_ip: String::new(),
+            editing_target_id: None,
+            start_server_ip: String::new(),
         }
-
-        Command::none()
     }
 
-    fn view(&self) -> Element<'_,Self::Message> {
+    fn update(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::Exit => return iced::exit(),
+
+            Message::OpenAddModal => {
+                self.input_id.clear();
+                self.input_ip.clear();
+                self.is_editing = false;
+                self.modal = ModalState::AddPeer;
+            }
+            Message::OpenConnectModal => {
+                self.input_id.clear();
+                self.is_editing = false;
+                self.modal = ModalState::ConnectPeer;
+            }
+
+            Message::OpenEditModal(peer) => {
+                self.input_id = peer.id.clone();
+                self.input_ip = peer.ip;
+                self.editing_target_id = Some(peer.id);
+                self.is_editing = true;
+                self.modal = ModalState::EditPeer;
+            }
+            Message::CloseModal => {
+                self.modal = ModalState::None;
+            }
+            Message::OpenStartServerModal => {
+                self.modal = ModalState::StartServer;
+            }
+            Message::InputIdChanged(val) => self.input_id = val,
+            Message::InputIpChanged(val) => self.input_ip = val,
+            Message::InputStartServerIpChanged(val) => self.start_server_ip = val,
+
+            Message::SubmitForm => {
+                if self.is_editing {
+                    if let Some(target) = &self.editing_target_id {
+                        if let Some(peer) = self.peers.iter_mut().find(|p| &p.id == target) {
+                            peer.id = self.input_id.clone();
+                            peer.ip = self.input_ip.clone();
+                        }
+                    }
+                } else {
+                    self.peers.push(PeerInfo {
+                        id: self.input_id.clone(),
+                        ip: self.input_ip.clone(),
+                        status: "New".into(),
+                        copied: false,
+                    });
+                }
+                self.modal = ModalState::None;
+            }
+
+            Message::DeletePeer(id) => {
+                self.peers.retain(|p| p.id != id);
+            }
+            Message::BanPeer(_id) => {}
+            Message::CopyIp(ip) => {
+                for peer in &mut self.peers {
+                    if peer.ip == ip {
+                        peer.copied = true;
+                        println!("copied: {} = {}", peer.ip, peer.copied);
+                    } else {
+                        peer.copied = false;
+                    }
+                }
+                return iced::clipboard::write::<Message>(ip.clone());
+             }
+
+            Message::Copied(ip) => {
+               for peer in &mut self.peers {
+                println!("before: {} = {}", peer.ip, peer.copied);
+
+                if peer.ip == ip {
+                    peer.copied = true;
+                } else {
+                    peer.copied = false;
+                }
+             }
+
+            println!("COPIED EVENT DONE");
+            }
+        }
+        Task::none()
+    }
+
+    fn view(&self) -> Element<'_, Message> {
+        let info_header = container(
+            row![
+                label_value("IP:", &self.my_ip),
+                label_value("Mask:", &self.my_mask),
+                label_value("State:", &self.state),
+            ]
+            .spacing(20),
+        );
+
         let controls = row![
-            text("Controls").size(20),
-            button("Start Server").on_press(Message::StartServer),
-            button("Connect Peer").on_press(Message::ConnectPeer),
-            button("Send Chat").on_press(Message::SendChat),
+            horizontal_space(),
+            button("Start Server")
+                .on_press(Message::OpenStartServerModal)
+                .style(button::primary),
+            button("Connect Peer")
+                .on_press(Message::OpenConnectModal)
+                .style(button::primary),
+            button("Add Peer")
+                .on_press(Message::OpenAddModal)
+                .style(button::primary),
+            horizontal_space(),
         ]
-        .spacing(10)
+        .spacing(10);
+
+        let table_header = row![
+            text("ID")
+                .width(Length::FillPortion(1))
+                .style(text::primary),
+            text("IP Address")
+                .width(Length::FillPortion(2))
+                .style(text::primary),
+            text("Status")
+                .width(Length::FillPortion(1))
+                .style(text::primary),
+        ]
         .padding(10);
 
-        let logs_panel = scrollable(
-            column(
-                self.logs
-                    .iter()
-                    .map(|l| text(l).into())
-                    .collect::<Vec<Element<Message>>>()
+        let peers_list = column(self.peers.iter().map(|peer| {
+            let row_content = container(
+                row![
+                    text(&peer.id).width(Length::FillPortion(1)),
+                    text(&peer.ip).width(Length::FillPortion(2)),
+                    if peer.copied {
+                            text(format!("{} (copied)", &peer.status)).width(Length::FillPortion(1)).style(text::success)
+                    } else {
+                            text(&peer.status).width(Length::FillPortion(1))
+                    },
+                ]
+                .align_y(Center),
             )
-            .spacing(5)
+            .padding(10)
+            .style(|theme: &Theme| container::Style {
+                background: Some(Background::Color(theme.palette().background)),
+                border: Border {
+                    radius: 4.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+
+
+            ContextMenu::new(row_content, move || {
+                container(
+                    column![
+                        button(text("Edit").size(14))
+                            .on_press(Message::OpenEditModal(peer.clone()))
+                            .style(button::text)
+                            .width(Length::Fill),
+                        button(text("Copy IP").size(14))
+                            .on_press(Message::CopyIp(peer.ip.clone()))
+                            .style(button::text)
+                            .width(Length::Fill),
+                        button(text("Delete").size(14))
+                            .on_press(Message::DeletePeer(peer.id.clone()))
+                            .style(button::danger)
+                            .width(Length::Fill),
+
+                        if peer.copied {
+                              container ( text("Copied!").size(12).style(text::success)
+                                .width(Length::Fill)
+                            )
+                        } else {
+                            container(text("") // still not ideal, but better than before
+                                .width(Length::Fill)
+                            )
+                        }    
+                    ]
+                    .padding(5)
+                    .spacing(2)
+                    .width(150),
+                )
+                .style(|theme: &Theme| container::Style {
+                    background: Some(Background::Color(theme.palette().background)),
+                    border: Border {
+                        radius: 10.0.into(),
+                        width: 1.0,
+                        color: theme.palette().primary,
+                    },
+                    shadow: Shadow {
+                        color: Color::BLACK,
+                        offset: Vector::new(0.0, 4.0),
+                        blur_radius: 10.0,
+                    },
+                    ..Default::default()
+                })
+                .into()
+            })
+            .into()
+        }))
+        .spacing(5);
+
+        let dashboard = container(
+            column![
+                info_header,
+                vertical_space().height(20),
+                controls,
+                vertical_space().height(10),
+                container(column![table_header, scrollable(peers_list)])
+            ]
+            .padding(20)
+            .max_width(800)
+            .align_x(Center),
         )
-        .height(300);
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center_x(Length::Fill);
+
+        stack![dashboard, self.view_modal_overlay()].into()
+        
+    }
+
+    fn view_modal_overlay(&self) -> Element<'_, Message> {
+    if matches!(self.modal, ModalState::None) {
+        return container(text("")).into();
+    }
+
+    // 🎯 Title based on modal
+    let title = match self.modal {
+        ModalState::AddPeer => "Add New Peer",
+        ModalState::EditPeer => "Edit Peer",
+        ModalState::ConnectPeer => "Connect to Peer",
+        ModalState::StartServer => "Start Server",
+        ModalState::None => "",
+    };
+
+    // 🎯 Dynamic content
+    let content = match self.modal {
+        ModalState::AddPeer | ModalState::EditPeer => column![
+            text("Peer ID").size(12),
+            text_input("e.g. peer-1", &self.input_id)
+                .on_input(Message::InputIdChanged)
+                .padding(10),
+
+            vertical_space().height(10),
+
+            text("IP Address").size(12),
+            text_input("e.g. 10.0.0.5", &self.input_ip)
+                .on_input(Message::InputIpChanged)
+                .padding(10),
+        ],
+
+        ModalState::ConnectPeer => column![
+            text("Peer ID").size(12),
+            text_input("e.g. peer-1", &self.input_id)
+                 .on_input(Message::InputIdChanged)
+                .padding(10),
+                      ],
+
+        ModalState::StartServer => column![
+            text("Signaling Server IP").size(12),
+            text_input("e.g. 192.168.1.1:9000", &self.start_server_ip)
+                .on_input(Message::InputStartServerIpChanged)
+                .padding(10),
+        ],
+
+        ModalState::None => column![],
+    };
+
+    // 🎯 Button text
+    let action_label = match self.modal {
+        ModalState::AddPeer => "Save",
+        ModalState::EditPeer => "Update",
+        ModalState::ConnectPeer => "Connect",
+        ModalState::StartServer => "Start",
+        ModalState::None => "",
+    };
+
+    let modal_card = container(column![
+        text(title).size(18),
+
+        vertical_space().height(15),
+
+        content,
+
+        vertical_space().height(20),
 
         row![
-            container(controls).width(200),
-            container(text("Main Panel")).width(300),
-            container(logs_panel).width(250),
+            button("Cancel")
+                .on_press(Message::CloseModal)
+                .style(button::secondary),
+
+            horizontal_space(),
+
+            button(action_label)
+                .on_press(Message::SubmitForm)
+                .style(button::primary),
         ]
-        .spacing(10)
-        .padding(10)
-        .into()
-    }
+    ])
+    .width(300)
+    .padding(20)
+    .style(|theme: &Theme| container::Style {
+        background: Some(Background::Color(theme.palette().background)),
+        border: Border {
+            radius: 10.0.into(),
+            width: 1.0,
+            color: theme.palette().primary,
+        },
+        shadow: Shadow {
+            color: Color::BLACK,
+            offset: Vector::new(0.0, 4.0),
+            blur_radius: 10.0,
+        },
+        ..Default::default()
+    });
+
+    let overlay = mouse_area(
+        container(modal_card)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .style(|_theme: &Theme| container::Style {
+                background: Some(Background::Color(Color {
+                    a: 0.8,
+                    ..Color::BLACK
+                })),
+                ..Default::default()
+            }),
+    )
+    .on_press(Message::CloseModal);
+
+    overlay.into()
+}
 }
 
-fn main() -> iced::Result {
-    App::run(iced::Settings::default())
+fn label_value<'a>(label: &'a str, value: &'a str) -> Element<'a, Message> {
+    row![
+        text(label).style(text::secondary),
+        text(value).style(text::primary)
+    ]
+    .spacing(5)
+    .into()
 }
-
